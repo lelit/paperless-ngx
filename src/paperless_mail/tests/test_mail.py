@@ -401,7 +401,7 @@ def assert_eventually_equals(getter_fn, expected_value, timeout=1.0, interval=0.
     raise AssertionError(f"Expected {expected_value}, but got {actual}")
 
 
-@mock.patch("paperless_mail.mail.magic.from_buffer", fake_magic_from_buffer)
+@mock.patch("magic.from_buffer", fake_magic_from_buffer)
 class TestMail(
     DirectoriesMixin,
     FileSystemAssertsMixin,

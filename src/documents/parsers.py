@@ -12,6 +12,7 @@ from pathlib import Path
 from re import Match
 from typing import TYPE_CHECKING
 
+import magic
 from django.conf import settings
 from django.utils import timezone
 
@@ -404,3 +405,80 @@ class DocumentParser(LoggingMixin):
     def cleanup(self):
         self.log.debug(f"Deleting directory {self.tempdir}")
         shutil.rmtree(self.tempdir)
+
+
+def decode_pkcs7(form: str, data: bytes) -> bytes:
+    """Unwrap PKCS#7 signed `data`, using ``openssl``."""
+    settings.SCRATCH_DIR.mkdir(parents=True, exist_ok=True)
+    fd, temp_filename = tempfile.mkstemp(dir=settings.SCRATCH_DIR)
+    cmd = (
+        settings.OPENSSL_BINARY,
+        "smime",
+        "-verify",
+        "-noverify",
+        "-inform",
+        form,
+        "-out",
+        temp_filename,
+    )
+    result = subprocess.run(cmd, input=data, capture_output=True)
+    if result.returncode:
+        logger.warning(
+            "Command %r exited with status %d: %s",
+            " ".join(cmd),
+            result.returncode,
+            result.stderr.decode("utf8", errors="ignore"),
+        )
+        return None
+    else:
+        logger.debug("Correctly unwrapped PKCS#7 document")
+        try:
+            with os.fdopen(fd, "rb") as f:
+                return f.read()
+        finally:
+            Path(temp_filename).unlink()
+
+
+def get_consumable_content(name: str, data: bytes) -> tuple[str, bytes | None]:
+    """
+    Obtain the interesting content from given `data`.
+
+    Use ``magic`` to determine the *mime-type* of the data: if it is usable as-is, accordingly
+    with :func:`is_mime_type_supported`, then return it unchanged; otherwise, check again if it
+    is a ``PKCS#7`` signed document, and in such case decode it and if the inner document
+    *mime-type* is supported, return it.
+
+    In any other case, return the *mime-type* and ``None`` as content.
+    """
+
+    mime_type = magic.from_buffer(data, mime=True)
+    if is_mime_type_supported(mime_type):
+        return mime_type, data
+
+    if mime_type in settings.CONSUMER_PDF_RECOVERABLE_MIME_TYPES and name.endswith(
+        ".pdf",
+    ):
+        return "application/pdf", data
+
+    if name.endswith(".p7m"):
+        data_type = magic.from_buffer(data)
+        m = re.match(r"(DER|PEM) Encoded PKCS#7 Signed Data", data_type)
+        if m:
+            logger.debug("Document %r contains PKCS#7 data", name)
+            decoded = decode_pkcs7(m.group(1), data)
+            mime_type = magic.from_buffer(decoded, mime=True)
+            if is_mime_type_supported(mime_type):
+                logger.info(
+                    "Correctly decoded %r content from PKCS#7 document %r",
+                    mime_type,
+                    name,
+                )
+                return mime_type, decoded
+        else:
+            logger.warning(
+                "Document %r contains unsupported sign schema: %s",
+                name,
+                data_type,
+            )
+
+    return mime_type, None

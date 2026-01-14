@@ -1166,6 +1166,7 @@ CONVERT_TMPDIR = os.getenv("PAPERLESS_CONVERT_TMPDIR")
 CONVERT_MEMORY_LIMIT = os.getenv("PAPERLESS_CONVERT_MEMORY_LIMIT")
 
 GS_BINARY = os.getenv("PAPERLESS_GS_BINARY", "gs")
+OPENSSL_BINARY = os.getenv("PAPERLESS_OPENSSL_BINARY", "openssl")
 
 # Fallback layout for .eml consumption
 EMAIL_PARSE_DEFAULT_LAYOUT = __get_int(

@@ -10,7 +10,6 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import magic
 import pathvalidate
 from celery import chord
 from celery import shared_task
@@ -37,7 +36,7 @@ from documents.data_models import DocumentMetadataOverrides
 from documents.data_models import DocumentSource
 from documents.loggers import LoggingMixin
 from documents.models import Correspondent
-from documents.parsers import is_mime_type_supported
+from documents.parsers import get_consumable_content
 from documents.tasks import consume_file
 from paperless_mail.models import MailAccount
 from paperless_mail.models import MailRule
@@ -812,12 +811,12 @@ class MailAccountHandler(LoggingMixin):
 
             # don't trust the content type of the attachment. Could be
             # generic application/octet-stream.
-            mime_type = magic.from_buffer(att.payload, mime=True)
+            mime_type, payload_data = get_consumable_content(att.filename, att.payload)
 
-            if is_mime_type_supported(mime_type):
+            if payload_data is not None:
                 self.log.info(
                     f"Rule {rule}: "
-                    f"Consuming attachment {att.filename} from mail "
+                    f"Consuming {mime_type} attachment {att.filename} from mail "
                     f"{message.subject} from {message.from_}",
                 )
 
@@ -837,7 +836,7 @@ class MailAccountHandler(LoggingMixin):
                     # Some cases may have no name (generally inline)
                     temp_filename = temp_dir / "no-name-attachment"
 
-                temp_filename.write_bytes(att.payload)
+                temp_filename.write_bytes(payload_data)
 
                 input_doc = ConsumableDocument(
                     source=DocumentSource.MailFetch,

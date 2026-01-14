@@ -8,7 +8,6 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from typing import Literal
 
-import magic
 from celery import states
 from django.conf import settings
 from django.contrib.auth.models import Group
@@ -65,7 +64,7 @@ from documents.models import WorkflowAction
 from documents.models import WorkflowActionEmail
 from documents.models import WorkflowActionWebhook
 from documents.models import WorkflowTrigger
-from documents.parsers import is_mime_type_supported
+from documents.parsers import get_consumable_content
 from documents.permissions import get_document_count_filter_for_user
 from documents.permissions import get_groups_with_only_permission
 from documents.permissions import set_permissions_for_object
@@ -1788,23 +1787,14 @@ class PostDocumentSerializer(serializers.Serializer):
     )
 
     def validate_document(self, document):
-        document_data = document.file.read()
-        mime_type = magic.from_buffer(document_data, mime=True)
-
-        if not is_mime_type_supported(mime_type):
-            if (
-                mime_type in settings.CONSUMER_PDF_RECOVERABLE_MIME_TYPES
-                and document.name.endswith(
-                    ".pdf",
-                )
-            ):
-                # If the file is an invalid PDF, we can try to recover it later in the consumer
-                mime_type = "application/pdf"
-            else:
-                raise serializers.ValidationError(
-                    _("File type %(type)s not supported") % {"type": mime_type},
-                )
-
+        mime_type, document_data = get_consumable_content(
+            document.name,
+            document.file.read(),
+        )
+        if document_data is None:
+            raise serializers.ValidationError(
+                _("File type %(type)s not supported") % {"type": mime_type},
+            )
         return document.name, document_data
 
     def validate_correspondent(self, correspondent):
