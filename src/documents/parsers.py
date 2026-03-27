@@ -446,7 +446,8 @@ def get_consumable_content(name: str, data: bytes) -> tuple[str, bytes | None]:
     Use ``magic`` to determine the *mime-type* of the data: if it is usable as-is, accordingly
     with :func:`is_mime_type_supported`, then return it unchanged; otherwise, check again if it
     is a ``PKCS#7`` signed document, and in such case decode it and if the inner document
-    *mime-type* is supported, return it.
+    *mime-type* is supported, return it. If it is still a ``PKCS#7`` envelop, repeat the
+    process.
 
     In any other case, return the *mime-type* and ``None`` as content.
     """
@@ -460,25 +461,40 @@ def get_consumable_content(name: str, data: bytes) -> tuple[str, bytes | None]:
     ):
         return "application/pdf", data
 
-    if name.endswith(".p7m"):
+    envelop = 0
+    data_type = magic.from_buffer(data)
+    m = re.match(r"(DER|PEM) Encoded PKCS#7 Signed Data", data_type)
+    while m is not None:
+        envelop += 1
+        if envelop > 5:
+            logger.warning("Giving up, more than 5 envelops in document %s!", name)
+            break
+
+        logger.debug("Envelop %d of document %r contains PKCS#7 data", envelop, name)
+        decoded = decode_pkcs7(m.group(1), data)
+        if decoded is None:
+            break
+
+        mime_type = magic.from_buffer(decoded, mime=True)
+        if is_mime_type_supported(mime_type):
+            logger.info(
+                "Correctly decoded %r content from PKCS#7 envelop %d of document %r",
+                mime_type,
+                envelop,
+                name,
+            )
+            return mime_type, decoded
+
+        data = decoded
         data_type = magic.from_buffer(data)
         m = re.match(r"(DER|PEM) Encoded PKCS#7 Signed Data", data_type)
-        if m:
-            logger.debug("Document %r contains PKCS#7 data", name)
-            decoded = decode_pkcs7(m.group(1), data)
-            mime_type = magic.from_buffer(decoded, mime=True)
-            if is_mime_type_supported(mime_type):
-                logger.info(
-                    "Correctly decoded %r content from PKCS#7 document %r",
-                    mime_type,
-                    name,
-                )
-                return mime_type, decoded
-        else:
+        if m is None:
             logger.warning(
-                "Document %r contains unsupported sign schema: %s",
+                "Envelop %d of document %r contains unsupported sign schema: %s",
+                envelop,
                 name,
                 data_type,
             )
+            break
 
     return mime_type, None
