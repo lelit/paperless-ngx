@@ -674,6 +674,13 @@ class ConsumerPlugin(
 
         document.save()
 
+        # Use the ID of the document as its ASN
+        # see https://gitlab.com/etour/amici-senza-tetto-web/adst-paperless/-/work_items/8
+        document.archive_serial_number = document.id
+        self.log.debug('ADST: overridden archive serial number as %s', document.id)
+
+        document.save()
+
         return document
 
     def apply_overrides(self, document):
