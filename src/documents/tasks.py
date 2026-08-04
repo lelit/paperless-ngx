@@ -145,6 +145,11 @@ def consume_file(
     if overrides is None:
         overrides = DocumentMetadataOverrides()
 
+    # Force the "creation date" to now, ignoring the timestamp coming from the document
+    # see https://gitlab.com/etour/amici-senza-tetto-web/adst-paperless/-/work_items/7
+    overrides.created = datetime.datetime.now()
+    logger.debug('ADST: overridden creation date as %s', overrides.created)
+
     plugins: list[type[ConsumeTaskPlugin]] = [
         ConsumerPreflightPlugin,
         CollatePlugin,
